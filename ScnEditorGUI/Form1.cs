@@ -1,68 +1,83 @@
 ﻿using System;
+using System.Collections;
 using System.Windows.Forms;
 using KrKrSceneManager;
 
 namespace ScnEditorGUI {
-    public partial class Form1 : Form {
+    public partial class Form1 : Form
+    {
+
+        private ArrayList _activeFiles = new ArrayList();
+        private bool _resourceMode;
+        private readonly PSBResManager _prm = new PSBResManager();
+        private PSBAnalyzer _scn;
+        
         public Form1() {
             InitializeComponent();
             MessageBox.Show("This GUI don't is a stable translation tool, this program is a Demo for my dll, the \"KrKrSceneManager.dll\" it's a opensoruce project to allow you make your program to edit any scn file (with sig PSB or MDF) or TJS2 Files (with sig TJS2100)\n\nHow to use:\n*Rigth Click in the window to open or save the file\n*Select the string in listbox and edit in the text box\n*Press enter to update the string\n\nThis program is unstable!");
         }
 
         private void openFileToolStripMenuItem_Click(object sender, EventArgs e) {
-            OpenFileDialog fd = new OpenFileDialog();
-            fd.FileName = "";
-            fd.Filter = "KiriKiri Compiled Files | *.scn; *.psb|Pack of Resources | *.pimg";
-            DialogResult dr = fd.ShowDialog();
-            if (dr == DialogResult.OK)
-                OpenFile(fd.FileName);
+            using (var fd = new OpenFileDialog())
+            {
+                fd.InitialDirectory = Application.ExecutablePath;
+                fd.Filter = "KiriKiri Compiled Files | *.scn; *.psb|Pack of Resources | *.pimg";
+                fd.Multiselect = true;
+                var dr = fd.ShowDialog();
+                if (dr != DialogResult.OK) return;
+                
+                foreach (var sFileName in fd.SafeFileNames)
+                    listBox2.Items.Add(sFileName);
+                
+                foreach (var file in fd.FileNames)
+                    _activeFiles.Add(file);
+                
+                listBox2.SelectedIndex = 0;
+            }
         }
-        bool ResourceMode = false;
-        PSBResManager PRM = new PSBResManager();
-        public PSBAnalyzer SCN;
         private void OpenFile(string fname) {
             if (fname.EndsWith(".pimg")) {
-                ResourceMode = true;
-                FileEntry[] Rst = PRM.Import(System.IO.File.ReadAllBytes(fname));
-                for (int i = 0; i < Rst.Length; i++)
-                    System.IO.File.WriteAllBytes(AppDomain.CurrentDomain.BaseDirectory + i + ".res", Rst[i].Data);
+                _resourceMode = true;
+                var rst = _prm.Import(System.IO.File.ReadAllBytes(fname));
+                for (var i = 0; i < rst.Length; i++)
+                    System.IO.File.WriteAllBytes(AppDomain.CurrentDomain.BaseDirectory + i + ".res", rst[i].Data);
                 MessageBox.Show("Resources Extracted in the Program Directory...", "Resource Manager", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else {
-                ResourceMode = false;
+                _resourceMode = false;
                 listBox1.Items.Clear();
-                SCN = new PSBAnalyzer(System.IO.File.ReadAllBytes(fname));
-                foreach (string str in SCN.Import()) {
+                _scn = new PSBAnalyzer(System.IO.File.ReadAllBytes(fname));
+                foreach (string str in _scn.Import()) {
                     listBox1.Items.Add(str);
                 }
-                if (SCN.UnkOpCodes) {
+                if (_scn.UnkOpCodes) {
                     MessageBox.Show("Maybe the reoder is wrong... try create a issue");
                 }
-                if (SCN.HaveEmbedded) {
+                if (_scn.HaveEmbedded) {
                     MessageBox.Show("Looks this psb contains a Embedded File, try open as .pimg");
                 }
             }
         }
         private void listBox1_SelectedIndexChanged(object sender, EventArgs e) {
             try {
-                this.Text = "id: " + listBox1.SelectedIndex;
+                Text = "id: " + listBox1.SelectedIndex;
                 textBox1.Text = listBox1.Items[listBox1.SelectedIndex].ToString();
             }
             catch { }
         }
         private void saveFileToolStripMenuItem_Click(object sender, EventArgs e) {
-            if (ResourceMode) {
+            if (_resourceMode) {
                 SaveFileDialog save = new SaveFileDialog();
                 save.FileName = "";
                 save.Filter = "Pack of Resources | *.pimg";
                 DialogResult dr = save.ShowDialog();
                 if (dr == DialogResult.OK) {
-                    FileEntry[] Images = new FileEntry[PRM.EntryCount];
+                    FileEntry[] Images = new FileEntry[_prm.EntryCount];
                     for (int i = 0; i < Images.Length; i++) {
                         Images[i] = new FileEntry();
                         Images[i].Data = System.IO.File.ReadAllBytes(AppDomain.CurrentDomain.BaseDirectory + i + ".res");
                     }
-                    byte[] result = PRM.Export(Images);
+                    byte[] result = _prm.Export(Images);
                     System.IO.File.WriteAllBytes(save.FileName, result);
                 }
             }
@@ -77,9 +92,9 @@ namespace ScnEditorGUI {
                         Strings[i] = listBox1.Items[i].ToString();
                     }
                     dr = MessageBox.Show("Would you like to compress the script? (Recommended)\n\nDoes not work with old games.", "ScnEditorGUI", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                    SCN.CompressPackget = dr == DialogResult.Yes;
+                    _scn.CompressPackget = dr == DialogResult.Yes;
                     PSBStrMan.CompressionLevel = CompressionLevel.Z_BEST_COMPRESSION; //opitional
-                    byte[] outfile = SCN.Export(Strings);
+                    byte[] outfile = _scn.Export(Strings);
                     System.IO.File.WriteAllBytes(save.FileName, outfile);
 
                 }
@@ -147,12 +162,14 @@ namespace ScnEditorGUI {
             fd.Filter = "KiriKiri TJS Compiled Files | *.tjs";
             DialogResult dr = fd.ShowDialog();
             if (dr == DialogResult.OK) {
-                byte[] Data = System.IO.File.ReadAllBytes(fd.FileName);
-                TJSEditor = new TJS2SManager(Data);
-                string[] Strings = TJSEditor.Import();
+                var data = System.IO.File.ReadAllBytes(fd.FileName);
+                TJSEditor = new TJS2SManager(data);
+                var strings = TJSEditor.Import();
                 listBox1.Items.Clear();
-                foreach (string str in Strings)
+                foreach (var str in strings)
+                {
                     listBox1.Items.Add(str);
+                }
             }
         }
 
@@ -259,7 +276,7 @@ namespace ScnEditorGUI {
         /// </summary>
         /// <param name="Txt">The String to Trim</param>
         /// <returns>The Result</returns>
-        internal static string TrimEnd(string Txt) {
+        private static string TrimEnd(string Txt) {
             string rst = Txt;
             foreach (string str in TrimContent) {
                 if (string.IsNullOrEmpty(str))
@@ -287,13 +304,17 @@ namespace ScnEditorGUI {
         };
 
         private void decompressScriptToolStripMenuItem_Click(object sender, EventArgs e) {
-            OpenFileDialog fd = new OpenFileDialog();
-            fd.FileName = "All PSB Files|*.psb;*.scn;*.pimg";
+            OpenFileDialog fd = new OpenFileDialog {FileName = "All PSB Files|*.psb;*.scn;*.pimg"};
             if (fd.ShowDialog() != DialogResult.OK)
                 return;
             byte[] Content = System.IO.File.ReadAllBytes(fd.FileName);
             System.IO.File.WriteAllBytes(fd.FileName, PSBStrMan.ExtractMDF(Content));
             MessageBox.Show("Finished");
+        }
+
+        private void listBox2_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            OpenFile(_activeFiles[listBox2.SelectedIndex].ToString());
         }
     }
 }
